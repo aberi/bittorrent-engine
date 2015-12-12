@@ -1,4 +1,5 @@
 import sys
+import getopt
 
 def usage():
 	print "Usage: bit_client <torrent file>"
@@ -65,7 +66,8 @@ def bencode_parse_dict(text):
 		(n_read, value) = bencode_parse(p)
 		index += n_read
 		# Place in the dictionary
-		d[key] = value	
+		if key != "pieces":
+			d[key] = value	
 		
 	return (index + 1, d)
 	
@@ -104,23 +106,25 @@ def load_file(filename):
 	# print torrent_data	
 	# return torrent_data
 
+
 if __name__ == "__main__":
 	if len(sys.argv) < 2:
 		usage()
 		exit()
 	
 	argv = sys.argv
-	torrent_file = open(argv[1], "rb")
-	torrent_data = torrent_file.read()
-	# d = bencode_parse_dict(first_line)
-	(length, i) = bencode_parse_int("i92834928734987e")
-	print i
+	opts, args = getopt.getopt(argv, "n", ["no-pieces"])
 	
-	(length, s) = bencode_parse_string("10:jfjfjfjfjf")
-	print s
+	show_pieces = 0
+	
+	if ('no-pieces','') in opts:
+		show_pieces = 1
+	
+	torrent_file = open(args[1], "rb")
+	torrent_data = torrent_file.read()
 
-	(length, l) = bencode_parse_dict(torrent_data)
-	print l
+	(length, d) = bencode_parse(torrent_data)
+	print d
 
 
 
