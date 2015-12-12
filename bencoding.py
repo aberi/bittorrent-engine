@@ -1,6 +1,7 @@
 import sys
 import getopt
 import hashlib
+import urllib
 
 def usage():
 	print "Usage: bit_client <torrent file>"
@@ -219,25 +220,27 @@ def bencode_parse_int(text):
 
 def load_file(filename):
 	torrent = open(filename, "rb")
-	first_char = torrent.read(1)
-	if first_char != "d":
-		print "Error: Torrent file should begin with a dictionary..."
-		exit()
-	
-	first_line = torrent.readline()
-	print first_line
-	
-	IFS=':'	
-	info={} # Empty dictionary
+	torrent_data = torrent.read()
+	return torrent_data
 
-	# Break this up into functions!!!!!!!!!!!
+def info_hash(filename):
+	torrent_data = load_file(filename)
 	
-	length_end = first_line.index(IFS)
+	(length, metadata) = bencode_parse(torrent_data)	
+	info = bencode_encode(metadata['info'])
+	info_hash = hashlib.sha1(info).hexdigest()
+	
+	return info_hash
 
+def url_hash(filename):
+	torrent_data = load_file(filename)
+	
+	(length, metadata) = bencode_parse(torrent_data)	
+	info = bencode_encode(metadata['info'])
+	url_hash = hashlib.sha1(info).digest()
+	url_hash = urllib.quote_plus(url_hash)	
 
-	# torrent_data = torrent.read()
-	# print torrent_data	
-	# return torrent_data
+	return url_hash
 
 def trackers(metadata):
 	metadata = bencode_dict_no_tod(metadata)
@@ -301,19 +304,8 @@ if __name__ == "__main__":
 	torrent_data = torrent_file.read()
 
 	(length, metadata) = bencode_parse(torrent_data)
-	
-	print	
-	#for k in metadata.keys():
-		#if k == "info":
-			#print str(k) + ": " + str(metadata[k])
-#
-	#print
-	for k in metadata.keys():
-		if k == 'info':
-			info = bencode_encode(metadata['info'])
-			# print info + '\n'
-			print "SHA1 Hash for the info metadata: " + hashlib.sha1(info).hexdigest()
-	print
+
+	print "SHA1 hash of info: " + info_hash(args[1])	
 
 	track = trackers(metadata)
 	print "All Trackers: " + str(track) + "\n"
