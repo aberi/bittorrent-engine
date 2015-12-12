@@ -5,17 +5,34 @@ import random
 import urllib
 import hashlib
 
+BUFSIZ = 4096
+
 def send_request(remote_host, remote_port, request_string):	
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	sock.bind((socket.gethostbyname(socket.gethostname()), 6881)) 
 	remote_addr = socket.gethostbyname(remote_host)
-	print remote_addr
-	print (remote_addr, remote_port)
 	sock.connect((remote_addr, remote_port))
 	sock.send(request_string)
-	s = sock.recv(4096)
 
-	print s
+	resp = ""
+	s = sock.recv(BUFSIZ)
+	while s != "":
+		resp = resp + s
+		s = sock.recv(BUFSIZ)
+	
+	return resp 
+
+def parse_tracker_response(resp):
+	p = resp
+	i = resp.index("\r\n")
+	while i != -1: #and p[:2] != "\r\n":
+		p = p[i+ 2:]
+		try:
+			i = p.index("\r\n")
+		except ValueError:
+			break	
+	b = bencoding.bencode_parse_dict(p)
+	return b
 
 def generate_peer_id():
 	random.seed()
@@ -35,10 +52,6 @@ def generate_request(tracker, info_hash, filename):
 	tracker_host, tracker_end = tracker_url.split(":")
 	tracker_port, tracker_path = tracker_end.split("/")
 	
-	print tracker_proto
-	print tracker_host
-	print tracker_port
-
 	peer_id = generate_peer_id()
 
 	request = "GET /announce?"
@@ -50,10 +63,11 @@ def generate_request(tracker, info_hash, filename):
 	request = request + "&left=10000"
 	request = request + "&compact=1"
 	request = request + " HTTP/1.1\r\n\r\n"
-	
+
+	print "Client Request:"	
 	print request
-	
-	send_request(tracker_host, int(tracker_port), request)
+	print 	
+	return send_request(tracker_host, int(tracker_port), request)
 	
 	
 
@@ -69,5 +83,28 @@ if __name__ == "__main__":
 	(length, metadata) = bencoding.bencode_parse(torrent_data)
 	
 	track = bencoding.trackers(metadata)
-	print track
-	generate_request(track[0], h, "")
+	
+	print "Using tracker at " + track[0]
+	print
+	resp = generate_request(track[0], h, "")
+	print "Tracker Response: "
+	print resp
+	print
+	
+	(x, r) = parse_tracker_response(resp)
+	d = bencoding.bencode_dict_no_tod(r)
+
+	peers = d["peers"]
+
+	l = [None] * (len(peers) / 6)
+
+	for i in range(0, len(peers) / 6):
+		s = str(ord(peers[i * 6])) + '.' + str(ord(peers[i * 6 + 1])) + '.' + str(ord(peers[i * 6 + 2])) + '.' + str(ord(peers[i * 6 + 3])) + ':'  \
+		+ str(((ord(peers[i * 6 + 4]) << 8) + ord(peers[i * 6 + 5])))
+		l[i] = s
+	
+	l.sort()	
+	print "List of peers (ip:port)"
+	for ip in l:
+		print ip
+
