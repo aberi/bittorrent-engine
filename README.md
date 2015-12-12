@@ -22,4 +22,5 @@ gives
 	 'created by': 'ruTorrent (PHP Class - Adrien Gibrat)', 
 	 'announce': 'http://tracker.kali.org:6969/announce'} 
 
-I chose to leave out the pieces from this object because they're a bunch of encrypted gibberish that clogs the screen. 
+I chose to leave out the pieces from this object because they're a bunch of SHA1 output that clogs the screen.
+ 

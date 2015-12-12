@@ -8,6 +8,21 @@ def is_int(c):
 	o = ord(c)
 	return (o >= 48 and o <= 57)
 
+def bencode_parse_raw(text):
+	if text[0] == 'l':
+		return bencode_parse_list_raw(text)
+	elif text[0] == 'd':
+		return bencode_parse_dict_raw(text)
+	elif text[0] == 'i':
+		return bencode_parse_int_raw(text)
+	else:
+		try:
+			(n_read, value) = bencode_parse_string_raw(text)
+			return (n_read, value)
+		except Exception:
+			raise Exception("Parse Error: Bencoding must begin with l, d, or i (not strictly speaking)") 
+	
+
 # Parse a "unit" of bencoding.
 def bencode_parse(text):
 	if text[0] == 'l':
@@ -23,6 +38,20 @@ def bencode_parse(text):
 		except Exception:
 			raise Exception("Parse Error: Bencoding must begin with l, d, or i (not strictly speaking)") 
 	
+def bencode_parse_list_raw(text):
+	if text[0] != 'l':
+		raise Exception("Lists must begin with \'l\'")
+
+	index = 1
+	a = ""			# Return value (accumulator)
+
+	while text[index] != 'e':
+		p = text[index:]
+		(n_read, value) = bencode_parse_raw(p)
+		a = "".join([a, value])
+		index += n_read
+
+	return (index + 1, 'l' + a + 'e') # Remember to skip the e that terminates the list!
 
 def bencode_parse_list(text):
 	if text[0] != 'l':
@@ -39,6 +68,18 @@ def bencode_parse_list(text):
 
 	return (index + 1, a) # Remember to skip the e that terminates the list!
 
+def bencode_parse_string_raw(text):
+	num_digits = 0
+
+	while is_int(text[num_digits]):	
+		num_digits += 1
+
+	length = text[:num_digits]
+		
+	raw_data = text[:num_digits + 1 + int(length)]
+
+	return (num_digits + 1 + int(length), raw_data) # length of string + ':' + string itself
+
 def bencode_parse_string(text):
 	num_digits = 0
 
@@ -49,7 +90,7 @@ def bencode_parse_string(text):
 	content = text[num_digits + 1: num_digits + 1 + int(length)]
 
 	return (num_digits + 1 + int(length), content) # length of string + ':' + string itself
-	
+
 def bencode_parse_dict(text):
 	if text[0] != 'd':
 		raise Exception("Dicts must begin with \'d\'")
@@ -67,9 +108,17 @@ def bencode_parse_dict(text):
 		index += n_read
 		# Place in the dictionary
 		if key != "pieces":
-			d[key] = value	
+			d[key] = value
 		
 	return (index + 1, d)
+
+def bencode_parse_int_raw(text):
+	if text[0] != 'i':
+		raise Exception("Integers must begin with \'i\'")
+	i = text.index('e')
+	if i == -1:	
+		raise Exception("Parse Error: Integer must end with \'e\'")
+	return (i + 1, text[:i + 1]) # 'i' + strlen(num_string) + 'e'
 	
 def bencode_parse_int(text):
 	if text[0] != 'i':
@@ -106,8 +155,49 @@ def load_file(filename):
 	# print torrent_data	
 	# return torrent_data
 
+def trackers(metadata):
+	if "announce-list" not in metadata.keys():
+		if "announce" not in metadata.keys():
+			raise Exception("Error: No trackers found in the .torrent file")
+		else:
+			return [metadata["announce"]]
+	else:
+		a = []
+		for url_list in metadata["announce-list"]:
+			for url in url_list:
+				a.append(url)
+		return a
 
-if __name__ == "__main__":
+def http_trackers(metadata):
+	if "announce-list" not in metadata.keys():
+		if "announce" not in metadata.keys():
+			raise Exception("Error: No trackers found in the .torrent file")
+		else:
+			return [metadata["announce"]]
+	else:
+		a = []
+		for url_list in metadata["announce-list"]:
+			for url in url_list:
+				if url[:4] == 'http':
+					a.append(url)
+		return a
+
+def udp_trackers(metadata):
+	if "announce-list" not in metadata.keys():
+		if "announce" not in metadata.keys():
+			raise Exception("Error: No trackers found in the .torrent file")
+		else:
+			return [metadata["announce"]]
+	else:
+		a = []
+		for url_list in metadata["announce-list"]:
+			for url in url_list:
+				if url[:3] == 'udp':
+					a.append(url)
+		return a
+
+
+if __name__ == "__":
 	if len(sys.argv) < 2:
 		usage()
 		exit()
@@ -123,9 +213,16 @@ if __name__ == "__main__":
 	torrent_file = open(args[1], "rb")
 	torrent_data = torrent_file.read()
 
-	(length, d) = bencode_parse(torrent_data)
-	print d
+	(length, metadata) = bencode_parse(torrent_data)
+	for k in metadata.keys():
+		if k != "pieces":
+			print str(k) + ": " + str(metadata[k])
 
-
-
+	print
+	track = trackers(metadata)
+	print "All Trackers: " + str(track) + "\n"
+	track = http_trackers(metadata)
+	print "HTTP Trackers: " + str(track) + "\n"
+	track = udp_trackers(metadata)
+	print "UDP Trackers: " + str(track) + "\n"
 	
