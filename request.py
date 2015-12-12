@@ -48,6 +48,7 @@ def generate_request(tracker, info_hash, filename):
 	request = request + "&uploaded=0"
 	request = request + "&downloaded=0"
 	request = request + "&left=10000"
+	request = request + "&compact=1"
 	request = request + " HTTP/1.1\r\n\r\n"
 	
 	print request
