@@ -1,5 +1,6 @@
 import sys
 import getopt
+import hashlib
 
 def usage():
 	print "Usage: bit_client <torrent file>"
@@ -91,11 +92,94 @@ def bencode_parse_string(text):
 
 	return (num_digits + 1 + int(length), content) # length of string + ':' + string itself
 
+def bencode_encode(k):
+	if type(k) is int:
+		return bencode_encode_int(k)
+	elif type(k) is str:
+		return bencode_encode_str(k)
+	elif type(k) is list:
+		return bencode_encode_list(k)
+	elif type(k) is dict:
+		return bencode_encode_dict(k)
+	elif type(k) is tuple:
+		(i, v) = k
+		if type(v) is int:
+			return bencode_encode_int(v)
+		elif type(v) is str:
+			return bencode_encode_string(v)
+		elif type(v) is list:
+			return bencode_encode_list(v)
+		elif type(v) is dict:
+			return bencode_encode_dict(v)
+	else:
+		raise Exception("Parse Error: Objects within the dict must be an int, str, list, or dict")	
+
+def bencode_encode_int(i):
+	return 'i' + str(i) + 'e'
+
+def bencode_encode_str(s):
+	return str(len(s)) + ':' + s
+
+def bencode_encode_list(l):
+	s = ""
+	for e in l:
+		s = s + bencode_encode(e)
+
+	return 'l' + s + 'e'
+
+def bencode_encode_dict(d):
+	s = ""
+	a = []
+	for i in range(0, 2 * len(d.keys())):
+		a.append(())
+	for k in d.keys():
+		bkey = bencode_encode(k)	
+		(tod, value) = d[k]
+		bvalue = bencode_encode(value)	
+		a[2 * tod] = bkey
+		a[2 * tod + 1] = bvalue
+		
+	return 'd' + "".join(a) + 'e'
+
+def bencode_parse_dict_raw(text):
+	if text[0] != 'd':
+		raise Exception("Dicts must begin with \'d\'")
+	index = 1
+	d = "" 
+	# Parse the next two entries together, because we have to place them in a KEY: VALUE pairing in the dictionary
+	while text[index] != 'e':
+		# Get key
+		p = text[index:]
+		(n_read, key) = bencode_parse_raw(p)
+		index += n_read
+		d = "".join([d,key])
+		# Get corresponding value
+		p = text[index:]
+		(n_read, value) = bencode_parse_raw(p)
+		index += n_read
+		d = "".join([d,value])
+		# Place in the dictionary
+		
+	return (index + 1, "d" + d + "e")
+
+def bencode_dict_no_tod(d):
+	e = {}
+	tod = 0
+	v = 0
+	for k in d.keys():
+		if type(d[k]) is tuple:
+			(tod, v) = d[k]
+		else:
+			v = d[k]
+		e[k] = v
+	return e	
+
 def bencode_parse_dict(text):
 	if text[0] != 'd':
 		raise Exception("Dicts must begin with \'d\'")
 	index = 1
 	d = {}
+	tod = 0
 	# Parse the next two entries together, because we have to place them in a KEY: VALUE pairing in the dictionary
 	while text[index] != 'e':
 		# Get key
@@ -107,8 +191,8 @@ def bencode_parse_dict(text):
 		(n_read, value) = bencode_parse(p)
 		index += n_read
 		# Place in the dictionary
-		if key != "pieces":
-			d[key] = value
+		d[key] = (tod, value)
+		tod += 1
 		
 	return (index + 1, d)
 
@@ -156,19 +240,21 @@ def load_file(filename):
 	# return torrent_data
 
 def trackers(metadata):
+	metadata = bencode_dict_no_tod(metadata)
 	if "announce-list" not in metadata.keys():
 		if "announce" not in metadata.keys():
 			raise Exception("Error: No trackers found in the .torrent file")
 		else:
 			return [metadata["announce"]]
 	else:
-		a = []
+		l = []
 		for url_list in metadata["announce-list"]:
 			for url in url_list:
-				a.append(url)
-		return a
+				l.append(url)
+		return l
 
 def http_trackers(metadata):
+	metadata = bencode_dict_no_tod(metadata)
 	if "announce-list" not in metadata.keys():
 		if "announce" not in metadata.keys():
 			raise Exception("Error: No trackers found in the .torrent file")
@@ -183,6 +269,7 @@ def http_trackers(metadata):
 		return a
 
 def udp_trackers(metadata):
+	metadata = bencode_dict_no_tod(metadata)
 	if "announce-list" not in metadata.keys():
 		if "announce" not in metadata.keys():
 			raise Exception("Error: No trackers found in the .torrent file")
@@ -197,7 +284,7 @@ def udp_trackers(metadata):
 		return a
 
 
-if __name__ == "__":
+if __name__ == "__main__":
 	if len(sys.argv) < 2:
 		usage()
 		exit()
@@ -214,15 +301,24 @@ if __name__ == "__":
 	torrent_data = torrent_file.read()
 
 	(length, metadata) = bencode_parse(torrent_data)
+	
+	print	
+	#for k in metadata.keys():
+		#if k == "info":
+			#print str(k) + ": " + str(metadata[k])
+#
+	#print
 	for k in metadata.keys():
-		if k != "pieces":
-			print str(k) + ": " + str(metadata[k])
-
+		if k == 'info':
+			info = bencode_encode(metadata['info'])
+			# print info + '\n'
+			print "SHA1 Hash for the info metadata: " + hashlib.sha1(info).hexdigest()
 	print
+
 	track = trackers(metadata)
 	print "All Trackers: " + str(track) + "\n"
 	track = http_trackers(metadata)
-	print "HTTP Trackers: " + str(track) + "\n"
+	#print "HTTP Trackers: " + str(track) + "\n"
 	track = udp_trackers(metadata)
-	print "UDP Trackers: " + str(track) + "\n"
+	#print "UDP Trackers: " + str(track) + "\n"
 	
