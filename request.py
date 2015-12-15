@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import bencoding
 import sys
 import socket
@@ -11,6 +13,8 @@ def send_request(remote_host, remote_port, request_string):
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	sock.bind((socket.gethostbyname(socket.gethostname()), 6881)) 
 	remote_addr = socket.gethostbyname(remote_host)
+	sock.settimeout(5.0)
+	print "Sending request to " + str(remote_addr) + " (" + remote_host + ") over port " + str(remote_port) + "\n"
 	sock.connect((remote_addr, remote_port))
 	sock.send(request_string)
 
@@ -47,11 +51,33 @@ def url_encode(s):
 	return urllib.quote_plus(s)	
 
 # Tracker should have protcol, host, and port in it
-def generate_request(tracker, info_hash, filename):
-	tracker_proto, tracker_url = tracker.split("://")
-	tracker_host, tracker_end = tracker_url.split(":")
-	tracker_port, tracker_path = tracker_end.split("/")
+def generate_request(trackers, info_hash, filename):
+	for i in range(0, len(trackers)):
+		tracker = trackers[i]
+		tracker_proto, tracker_url = tracker.split("://")
+		if ':' in tracker_url:
+			tracker_host, tracker_end = tracker_url.split(":")
+			tmp = tracker_end.split("/")
+			if len(tmp) > 1:
+				tracker_port, tracker_path = tmp
+			else:
+				tracker_port = tmp[0]
+		else:
+			tracker_port = 80
+			tmp = tracker_url.split("/")
+			if len(tmp) > 1:
+				tracker_host, tracker_path = tmp
+			else:
+				tracker_host = tmp[0]	
+
+		try:
+			socket.gethostbyname(tracker_host)
+		except Exception:
+			continue
+
+		break
 	
+		
 	peer_id = generate_peer_id()
 
 	request = "GET /announce?"
@@ -64,7 +90,7 @@ def generate_request(tracker, info_hash, filename):
 	request = request + "&compact=1"
 	request = request + " HTTP/1.1\r\n\r\n"
 
-	print "Client Request:"	
+	print "Client Request: \n"	
 	print request
 	print 	
 	return send_request(tracker_host, int(tracker_port), request)
@@ -82,29 +108,49 @@ if __name__ == "__main__":
 	
 	(length, metadata) = bencoding.bencode_parse(torrent_data)
 	
-	track = bencoding.trackers(metadata)
+	track = bencoding.http_trackers(metadata)
+	
+	if len(track) == 0:
+		raise Exception("No HTTP trackers found (engine does not currently support UDP trackers)")
 	
 	print "Using tracker at " + track[0]
-	print
-	resp = generate_request(track[0], h, "")
-	print "Tracker Response: "
-	print resp
-	print
+	# print
+	resp = generate_request(track, h, "")
+	# print "Tracker Response: \n"
+	# print resp
+	# print
 	
 	(x, r) = parse_tracker_response(resp)
 	d = bencoding.bencode_dict_no_tod(r)
+	
+	# print "Python object version of tracker response: \n"
+	# print str(d) + '\n'
 
-	peers = d["peers"]
+	peers = ""
+	
+	try:
+		peers = d["peers"]
+	except KeyError:
+		try:
+			tmp = d["peers6"]
+		except KeyError:
+			raise Exception("Didn't find peers")
+		raise Exception("IPv6 not supported!")
 
 	l = [None] * (len(peers) / 6)
 
 	for i in range(0, len(peers) / 6):
-		s = str(ord(peers[i * 6])) + '.' + str(ord(peers[i * 6 + 1])) + '.' + str(ord(peers[i * 6 + 2])) + '.' + str(ord(peers[i * 6 + 3])) + ':'  \
-		+ str(((ord(peers[i * 6 + 4]) << 8) + ord(peers[i * 6 + 5])))
-		l[i] = s
+		ip = str(ord(peers[i * 6])) + '.' + str(ord(peers[i * 6 + 1])) + '.' + str(ord(peers[i * 6 + 2])) + '.' + str(ord(peers[i * 6 + 3])) 
+		port = str(((ord(peers[i * 6 + 4]) << 8) + ord(peers[i * 6 + 5])))
+		l[i] = ip + ':' + port
 	
 	l.sort()	
 	print "List of peers (ip:port)"
-	for ip in l:
-		print ip
+	for addr in l:
+		ip, port = addr.split(":")
+		try:
+			name, alias, address = socket.gethostbyaddr(ip)
+		except Exception:
+			pass
+		print addr + " (" + name + ") "
 
