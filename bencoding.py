@@ -163,16 +163,23 @@ def bencode_parse_dict_raw(text):
 		
 	return (index + 1, "d" + d + "e")
 
+def bencode_no_tod(b):
+	if type(b) is tuple:
+		(tod, v) = b
+		return bencode_no_tod(v)
+	elif type(b) is list:
+		for i in range(0, len(b)):
+			b[i] = bencode_no_tod(b[i])
+		return b
+	elif type(b) is dict:
+		return bencode_dict_no_tod(b)
+	else:
+		return b
+
 def bencode_dict_no_tod(d):
 	e = {}
-	tod = 0
-	v = 0
 	for k in d.keys():
-		if type(d[k]) is tuple:
-			(tod, v) = d[k]
-		else:
-			v = d[k]
-		e[k] = v
+		e[k] = bencode_no_tod(d[k])
 	return e	
 
 def bencode_parse_dict(text):
@@ -231,6 +238,14 @@ def info_hash(filename):
 	info_hash = hashlib.sha1(info).hexdigest()
 	
 	return info_hash
+
+def info_hash_binary(filename):
+	torrent_data = load_file(filename)
+	
+	(length, metadata) = bencode_parse(torrent_data)	
+	info = bencode_encode(metadata['info'])
+	return hashlib.sha1(info)
+	
 
 def url_hash(filename):
 	torrent_data = load_file(filename)
