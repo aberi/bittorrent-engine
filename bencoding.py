@@ -235,6 +235,9 @@ def info_hash(filename):
 	
 	(length, metadata) = bencode_parse(torrent_data)	
 	info = bencode_encode(metadata['info'])
+
+	print info
+
 	info_hash = hashlib.sha1(info).hexdigest()
 	
 	return info_hash
