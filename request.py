@@ -44,9 +44,9 @@ def generate_peer_id():
 	random.seed()
 	r = random.random()
 	r = str(int(r * (10**10)))
-	s = hashlib.sha1(r).digest()
+	s = hashlib.sha1(r).digest()[0:13]
 	
-	return s
+	return '-UT2210' + s
 
 def url_encode(s):
 	return urllib.quote_plus(s)	
