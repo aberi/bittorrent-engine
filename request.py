@@ -114,6 +114,8 @@ def tracker_request(filename, no_dns):
 	print "Using tracker at " + track[0]
 
 	resp = generate_request(track, h, "")
+
+	print resp
 	
 	(x, r) = parse_tracker_response(resp)
 	d = bencoding.bencode_dict_no_tod(r)
