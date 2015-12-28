@@ -10,6 +10,8 @@ import hashlib
 
 BUFSIZ = 4096
 
+alpha_num = [chr((ord('0')) + i) for i in range(0, 10)] + [chr((ord('A')) + i) for i in range(0, 26)]
+
 def send_request(remote_host, remote_port, request_string):	
 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	sock.bind((socket.gethostbyname(socket.gethostname()), 6881)) 
@@ -42,9 +44,11 @@ def parse_tracker_response(resp):
 # Generates a psuedo-random ID using Python's PRNG and SHA-1 to get an output of length 20
 def generate_peer_id():
 	random.seed()
-	r = random.random()
-	r = str(int(r * (10**10)))
-	s = hashlib.sha1(r).digest()[0:13]
+	s = ""
+	for i in range(0, 13):
+		r = int(random.random() * 36)
+		a = alpha_num[r]
+		s += a	
 	
 	return '-UT2210' + s
 
@@ -112,7 +116,9 @@ def tracker_request(filename, no_dns):
 	
 	print "Using tracker at " + track[0]
 
-	resp = generate_request(track, h, generate_peer_id(), "")
+	peer_id = generate_peer_id()
+
+	resp = generate_request(track, h, peer_id, "")
 
 	print resp
 	
@@ -158,6 +164,8 @@ def tracker_request(filename, no_dns):
 	return l
 
 if __name__ == "__main__":
+
+	print alpha_num
 
 	no_dns = False 
 	show_pieces = False 

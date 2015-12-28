@@ -124,7 +124,7 @@ if __name__ == '__main__':
 	print "Peer's hash: "
 	print peer_hash
 
-	print "\nOur peer ID: " + client.peer_id
+	print "\nOur peer ID:\t" + client.peer_id
 	
-	print "Peer ID: " + peer_id
+	print "Peer ID:   \t" + peer_id
 
