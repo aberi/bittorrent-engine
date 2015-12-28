@@ -71,7 +71,9 @@ if __name__ == '__main__':
 	sock.connect((ip, int(port)))
 
 	print "Connecting to peer at " + ip + ":" + port
-	handshake = "\x19BitTorrent protocol" + (8 * chr(0)) + str(client.torrent.binary_hash().digest()) + client.peer_id
+	handshake = chr(19) + "BitTorrent protocol" + (8 * chr(0)) + str(client.torrent.binary_hash().digest()) + client.peer_id
+
+	print "Sending handshake: \"" + handshake + "\""
 	sock.send(handshake)
 	resp = sock.recv(4096)
 

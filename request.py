@@ -45,7 +45,6 @@ def generate_peer_id():
 	r = random.random()
 	r = str(int(r * (10**10)))
 	s = hashlib.sha1(r).digest()
-	s = urllib.quote_plus(s)	
 	
 	return s
 
@@ -53,8 +52,8 @@ def url_encode(s):
 	return urllib.quote_plus(s)	
 
 # Tracker should have protcol, host, and port in it
-def generate_request(trackers, info_hash, filename):
-	peer_id = generate_peer_id()
+def generate_request(trackers, info_hash, peer_id, filename):
+	peer_id = urllib.quote_plus(peer_id)
 
 	request = "GET /announce?"
 	request = request + "info_hash=" + str(info_hash)
@@ -113,7 +112,7 @@ def tracker_request(filename, no_dns):
 	
 	print "Using tracker at " + track[0]
 
-	resp = generate_request(track, h, "")
+	resp = generate_request(track, h, generate_peer_id(), "")
 
 	print resp
 	
