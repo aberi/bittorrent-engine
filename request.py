@@ -100,7 +100,7 @@ def generate_request(trackers, info_hash, peer_id, filename):
 		except Exception:	
 			continue 	
 
-	raise socket.timeout
+		raise socket.timeout
 
 def tracker_request(filename, no_dns):	
 	h = bencoding.url_hash(filename)

@@ -23,6 +23,23 @@ class TorrentFile:
 	def binary_hash(self):
 		return bencoding.info_hash_binary(self.name)			# Needs to be send to trackers and peers to identify
 																# a .torrent file
+	def file_length(self):
+		l = self.dictionary["info"]["length"]
+		if self.dictionary["info"]["length"] != None:			# A single file
+			return l
+
+	def piece_length(self):
+		l = self.dictionary["info"]["piece length"]
+		if self.dictionary["info"]["piece length"] != None:			# A single file
+			return l
+
+	def pieces(self):
+		l = self.dictionary["info"]["pieces"]
+		if self.dictionary["info"]["pieces"] != None:			# A single file
+			return len(l)
+
+
+# TESTING	
 
 if __name__ == '__main__':
 
@@ -32,7 +49,11 @@ if __name__ == '__main__':
 		filename = sys.argv[1]	
 	
 	t = TorrentFile(filename)
+
 	print t.info_hash
 	print t.parsed_object()
 	print t.trackers
 	print t.http_trackers()
+	print t.file_length()
+	print t.piece_length()
+	print t.pieces()
