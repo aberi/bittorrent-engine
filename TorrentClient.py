@@ -7,17 +7,19 @@ import socket
 import struct
 import random
 import math
+import errno
 
-import TorrentFile
+import torrent_file
 import Peer
 
 BIT_TORRENT_DEFAULT_PORT = 6881
+BUFSIZ = 1 << 10
 
 class TorrentClient:
 	def __init__(self, filename, no_dns):
 		# Torrent initialization
 		self.file_name = filename	
-		self.torrent = TorrentFile.TorrentFile(self.file_name) 
+		self.torrent = torrent_file.TorrentFile(self.file_name) 
 		self.peer_id = request.generate_peer_id()
 		self.info_hash = self.torrent.info_hash 	  # The one that you print for debugging
 		self.binary_hash = self.torrent.binary_hash() # The one that you send over connections 
@@ -28,12 +30,18 @@ class TorrentClient:
 		self.hostname = socket.gethostname()
 		self.port = BIT_TORRENT_DEFAULT_PORT
 		self.addr = socket.gethostbyname(self.hostname)
-		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+		self.sockets = [socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)]	# List of sockets 
+																				# that will be used 
+	
+		self.sock = self.sockets[0]	
+		self.current_socket = 0							# Index of the current socket being used
+		self.num_connections = 0
 	
 		self.bitfield = [False] * self.bitfield_length_bytes() * 8
 
 		# Connection information
-		self.connected = False
+		self.is_connected = False	# Whether the client is connected to some peer
+		self.connected_peers = []	# List of peers the client is currently connected to
 		# Connections start with each peer choking the other and not interested in the other
 		self.is_choked = True 
 		self.is_interested = False 
@@ -48,8 +56,10 @@ class TorrentClient:
 				continue
 			break	
 
-		socket.timeout(5.0)
+		socket.timeout(1.0)
 
+	def close_connection(self):
+		self.sock.close()
 
 	def send_tracker_request(self):
 		info_hash = urllib.quote_plus(self.info_hash)			# Needs to be sent in this format
@@ -59,6 +69,13 @@ class TorrentClient:
 	def update_peers(self):
 		self.peers = request.tracker_request(self.file_name, self.no_dns)	
 		self.peers.sort()
+
+	def switch_sock(self, index):
+		if index < 0 or index > len(self.sockets):
+			return
+		else:
+			self.current_socket = index
+			self.sock = sockets[index]
 
 		
 	def print_peers(self):	
@@ -74,21 +91,73 @@ class TorrentClient:
 			print ip + ":" + port + name
 
 	# Connect to the peer specified by PEER. Should be from the list of peers returned by the tracker
-	# for this to work.
+	# for this to work. Only will connect to PEER if the client is not already connected to it.
 	def connect_to_peer(self, peer):
+		if peer in self.connected_peers:
+			return 
+
 		(peer_ip, peer_port) = peer 
+		socket.timeout(1.0)
 		self.sock.connect((peer_ip, int(peer_port)))	
 		self.is_connected = True
 		self.peer_ip = peer_ip
 		self.peer_port = peer_port
+		self.connected_peers.append(peer)
 
+	# Create a socket specifically for this connection
+	def new_connection(self, peer, use_new_connection=True):
+		if peer in self.connected_peers:
+			return False
+
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+		port = self.port + self.num_connections + 1
+		while 1:
+			try: 
+				s.bind((self.addr, port))
+				break
+			except socket.error:
+				port = port + 1
+	
+		print "Created socket at (" + self.addr + ", " + str(port) + ")"
+
+		(peer_ip, peer_port) = peer
+		try:		
+			s.connect((peer_ip, int(peer_port)))
+			self.is_connected = True
+			self.peer_ip = peer_ip
+			self.peer_port = peer_port
+		except Exception:
+			return False
+	
+		self.sockets.append(s)
+		self.connected_peers.append(peer)
+
+		print "Connected to peer at " + peer_ip + ":" + peer_port + '\n'
+
+		if use_new_connection:
+			self.sock = s
+
+		return True					# Was able to connect
+
+	def new_random_connection(self):
+		r =	int(random.random() * len(self.peers))
+		peer = self.peers[r]
+		return self.new_connection(peer, True)
+		
 	# Connect to a randomly chosen peer from the client's list of peers
 	def random_connection(self):
-		r = int(random.random() * len(self.peers))
-		peer = self.peers[r]
-		self.connect_to_peer(peer)
+		tries = 10
+		while tries > 0:
+			try:
+				r =	int(random.random() * len(self.peers))
+				peer = self.peers[r]
+				self.connect_to_peer(peer)
+				break
+			except socket.error:
+				tries = tries - 1
+				continue
 
-		print "Connecting to peer at " + self.peer_ip + ":" + self.peer_port + '\n'
+			print "Connected to peer at " + self.peer_ip + ":" + self.peer_port + '\n'
 
 	# Send the initiating handshake to the peer we are currently connected to. Sending
 	# a bitfield is optionally (by default, it should not be sent)
@@ -96,13 +165,19 @@ class TorrentClient:
 		if not self.is_connected:
 			self.random_connection()
 		handshake = chr(19) + "BitTorrent protocol" + (8 * chr(0)) + \
-		str(client.torrent.binary_hash().digest()) + client.peer_id
+		str(self.torrent.binary_hash().digest()) + self.peer_id
 		if send_bitfield:
 			handshake += self.bitfield_raw_bytes(self.bitfield)
 
-		print "Sending handshake:\n \"" + str(handshake) + "\""
-		client.sock.send(handshake)
-		resp = client.sock.recv(4096)
+		print "Sending handshake to " + self.peer_ip + ":" + self.peer_port + ":\n \"" + str(handshake) + "\""
+		try: 	
+			self.sock.send(handshake)
+		except:
+			self.sockets.remove(self.sock)
+			self.sock.close()
+			return ""
+	
+		resp = self.sock.recv(BUFSIZ)
 		return resp
 
 	# Method for parsing all incoming messages that are not the handshake into
@@ -148,17 +223,22 @@ class TorrentClient:
 		if msg_id == 0:			# Choke	
 			print "Peer has choked client"
 			self.is_choking = True
+
 		elif msg_id == 1:		# Unchoke
 			print "Peer has unchoked client"
 			self.is_choking = False
+
 		elif msg_id == 2:		# Interested
 			print "Peer is interested in something"
 			self.is_interesting = True
+
 		elif msg_id == 3:		# Not Interested
 			print "Peer is not interested in something"
 			self.is_interesting = False 
+
 		elif msg_id == 4:		# Have
 			pass		
+
 		elif msg_id == 5:		# Bitfield
 			self.peer.is_seed = True
 			for i in range(0, len(msg_content)):
@@ -170,8 +250,12 @@ class TorrentClient:
 						has_piece = (current_byte & current_bit) != 0	# AND with the current bit to see if peer has piece
 						self.peer.bitfield[index] = has_piece		
 						self.peer.is_seed = self.peer.is_seed and has_piece		# Only a seed if it has all the pieces
-					else:
+					elif index < (self.bitfield_length_bytes() * 8):
 						self.peer.bitfield[index] = False
+					else:
+						if self.peer.is_seed:
+							print "Peer is a seed indeed"
+						return 
 						
 			if self.peer.is_seed:
 				print "Peer is a seed indeed"
@@ -252,7 +336,7 @@ if __name__ == '__main__':
 	client.update_peers()
 	client.print_peers()	
 	
-	client.random_connection()
+	# client.random_connection()
 	resp = client.peer_handshake(True)	
 
 	print "\nPeer's response to handshake: "	
