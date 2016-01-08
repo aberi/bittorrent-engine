@@ -52,4 +52,19 @@ if __name__ == "__main__":
 	client.update_peers()
 	client.connect_to_all_peers()
 
-	print "Attempted to connect with every peer given by the tracker"
+	print "\nList of connected peers:"
+	for i in range(0, len(client.connected_peers)):
+		(ip, port) = client.connected_peers[i]
+		print "(" + str(i+1) + ") " + ip + ":" + port	
+
+	print "Number of sockets: " + str(len(client.sockets))
+	print "Number of connected peers: " + str(len(client.connected_peers))
+	print "Number of peer objects: " + str(len(client.all_connected_peers))
+	
+	while True:
+		entry = int(raw_input("\nEnter peer to receive data from: "))
+		entry = entry - 1
+		while True:
+			msg_len, msg_id, msg = client.receive_message_from_peer(entry)
+			client.parse_message_content(msg_id, msg)
+			print msg
