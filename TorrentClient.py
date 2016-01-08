@@ -94,15 +94,17 @@ class TorrentClient:
 	# for this to work. Only will connect to PEER if the client is not already connected to it.
 	def connect_to_peer(self, peer):
 		if peer in self.connected_peers:
-			return 
+			return None
 
 		(peer_ip, peer_port) = peer 
-		socket.timeout(1.0)
+		socket.timeout(0.5)
 		self.sock.connect((peer_ip, int(peer_port)))	
 		self.is_connected = True
 		self.peer_ip = peer_ip
 		self.peer_port = peer_port
 		self.connected_peers.append(peer)
+	
+		return peer
 
 	# Create a socket specifically for this connection
 	def new_connection(self, peer, use_new_connection=True):
@@ -118,14 +120,19 @@ class TorrentClient:
 			except socket.error:
 				port = port + 1
 	
-		print "Created socket at (" + self.addr + ", " + str(port) + ")"
+		print "\n\nCreated socket at (" + self.addr + ", " + str(port) + ")"
 
 		(peer_ip, peer_port) = peer
 		try:		
-			s.connect((peer_ip, int(peer_port)))
-			self.is_connected = True
-			self.peer_ip = peer_ip
-			self.peer_port = peer_port
+			s.settimeout(.5)
+			try:
+				s.connect((peer_ip, int(peer_port)))
+				self.is_connected = True
+				print "Current peer is " + peer_ip + ":" + peer_port
+				self.peer_ip = peer_ip
+				self.peer_port = peer_port
+			except socket.timeout:
+				return False
 		except Exception:
 			return False
 	
@@ -151,33 +158,54 @@ class TorrentClient:
 			try:
 				r =	int(random.random() * len(self.peers))
 				peer = self.peers[r]
-				self.connect_to_peer(peer)
-				break
+				p = self.connect_to_peer(peer)
+
+				(peer_ip, peer_port) = p
+
+				if p != None:
+					print "Connected to peer at " + peer_ip + ":" + peer_port + '\n'
+
+				return (peer_ip, peer_port) # which should be the same as p
 			except socket.error:
 				tries = tries - 1
 				continue
+	
+		return None	
 
-			print "Connected to peer at " + self.peer_ip + ":" + self.peer_port + '\n'
 
 	# Send the initiating handshake to the peer we are currently connected to. Sending
 	# a bitfield is optionally (by default, it should not be sent)
 	def peer_handshake(self, send_bitfield=False):
 		if not self.is_connected:
-			self.random_connection()
+			conn = self.random_connection()
+
 		handshake = chr(19) + "BitTorrent protocol" + (8 * chr(0)) + \
 		str(self.torrent.binary_hash().digest()) + self.peer_id
 		if send_bitfield:
 			handshake += self.bitfield_raw_bytes(self.bitfield)
 
 		print "Sending handshake to " + self.peer_ip + ":" + self.peer_port + ":\n \"" + str(handshake) + "\""
+
 		try: 	
 			self.sock.send(handshake)
 		except:
-			self.sockets.remove(self.sock)
-			self.sock.close()
+			if self.sock in self.sockets:
+				self.sockets.remove(self.sock)
+				self.sock.close()
 			return ""
-	
-		resp = self.sock.recv(BUFSIZ)
+
+		try:	
+			resp = self.sock.recv(BUFSIZ)
+		except socket.error:
+			return ""
+
+		# Ignore errors that occurs as a result of this. See if we can keep connections alive
+		try:
+			pass
+			#self.send_keepalive()
+		except:
+			pass
+		
 		return resp
 
 	# Method for parsing all incoming messages that are not the handshake into
@@ -211,7 +239,10 @@ class TorrentClient:
 
 		bytes_left = content_len - msg_len + 5	
 		while bytes_left > 0:
-			buf = self.sock.recv(bytes_left)
+			try:
+				buf = self.sock.recv(bytes_left)
+			except:
+				return content_len, msg_id, content	
 			content = content + buf
 			bytes_left = bytes_left - len(buf)
 
@@ -283,7 +314,7 @@ class TorrentClient:
 					current_byte += current_bit
 			raw_bytes += chr(current_byte)
 
-		print "\nRaw byte representation of bitfield: " + raw_bytes	
+		# print "\nRaw byte representation of bitfield: " + raw_bytes	
 		return raw_bytes
 
 		
@@ -324,7 +355,36 @@ class TorrentClient:
 
 	def bitfield_length_bytes(self):
 		return int(math.ceil(float(self.torrent.pieces()) / 160.0))
+
+	# Attempt to connect to up to 30 peers from the list
+	def connect_to_all_peers(self):	
+		for i in range(0, 30):
+			conn = False 
+			if i < len(self.peers):
+				conn = self.new_connection(self.peers[i])
 	
+			if conn and not (conn in self.connected_peers):
+				resp = self.peer_handshake(True)
+				print "Peer responded with " + resp
+				if resp != "":
+					msg_len, peer_hash, peer_id = self.parse_handshake(resp)
+					self.print_peer_bitfield()
+	
+			print "List of connected peers: " + str(self.connected_peers)
+
+	def send_message_to_peer(self, msg_id, msg_content):
+		if msg_id == 0:
+			self.sock.send(4 * chr(0))
+			return
+
+		msg_len = int(len(msg_content) + 1)
+		tmp = chr(msg_len & (0xff << 24)) + chr(msg_len & (0xff << 16)) + chr(msg_len & (0xff << 8)) + chr(msg_len & (0xff))	# High bits first
+		msg = tmp + chr(msg_id) + msg_content		# Message ID + the actual message
+
+		self.sock.send(msg)
+
+	def send_keepalive(self):
+		self.send_message_to_peer(0, None)
 
 # TESTING
 

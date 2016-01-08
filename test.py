@@ -29,17 +29,20 @@ def test_random_connection_and_handshake(filename):
 
 def test_new_connection(client):
 	for i in range(0, len(client.peers)):
-		client.new_random_connection()
-		resp = client.peer_handshake(True)
-		print "Peer responded with " + resp
-		msg_len, peer_hash, peer_id = client.parse_handshake(resp)
-		client.print_peer_bitfield()
+		conn = client.new_random_connection()
+
+		if conn != None and not (conn in client.connected_peers):
+			resp = client.peer_handshake(True)
+			print "Peer responded with " + resp
+			if resp != "":
+				msg_len, peer_hash, peer_id = client.parse_handshake(resp)
+				client.print_peer_bitfield()
+
 		print "List of connected peers: " + str(client.connected_peers)
 	
 
 if __name__ == "__main__":
 	subprocess.call("ls")
-	socket.timeout(1.0)
 	filename = raw_input("Enter filename: ")
 	# print test_random_connection_and_handshake(filename)
 
@@ -47,6 +50,6 @@ if __name__ == "__main__":
 	
 	client = TorrentClient.TorrentClient(filename, True)
 	client.update_peers()
-	test_new_connection(client)	
+	client.connect_to_all_peers()
 
-
+	print "Attempted to connect with every peer given by the tracker"
