@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import bencoding
 import request
 import torrent_file
@@ -53,18 +54,48 @@ if __name__ == "__main__":
 	client.connect_to_all_peers()
 
 	print "\nList of connected peers:"
-	for i in range(0, len(client.connected_peers)):
-		(ip, port) = client.connected_peers[i]
-		print "(" + str(i+1) + ") " + ip + ":" + port	
+
+	i = 0
+	for (ip, port) in client.connected_peers:
+		print "(" + str(i+1) + ") " + ip + ":" + port
+		i = i + 1
 
 	print "Number of sockets: " + str(len(client.sockets))
 	print "Number of connected peers: " + str(len(client.connected_peers))
 	print "Number of peer objects: " + str(len(client.all_connected_peers))
-	
+
 	while True:
-		entry = int(raw_input("\nEnter peer to receive data from: "))
-		entry = entry - 1
-		while True:
-			msg_len, msg_id, msg = client.receive_message_from_peer(entry)
-			client.parse_message_content(msg_id, msg)
-			print msg
+		try:	
+			while True:
+				choice = int(raw_input("\n1 for receiving raw data, 2 for sending a request message, \
+											3 for sending a have message, 4 for sending a keepalive, 5 for exit\n"))
+				
+				if choice == 1:
+					entry = int(raw_input("\nEnter peer to receive data from: "))
+					entry = entry - 1
+					while True:
+						msg_len, msg_id, msg = client.receive_message_from_peer(entry)
+						client.parse_message_content(msg_id, msg)
+	
+				elif choice == 5:
+					exit()
+		except:
+			if choice == 5:
+				exit()
+
+			print "\nList of peers and their message histories..."
+			for i in range(0, len(client.all_connected_peers)):
+				peer = client.all_connected_peers[i]
+				print "Total bytes received from " + peer.ip + ":" + peer.port
+				print "All bytes received from peer " + peer.ip + ":" + peer.port + ": "
+				print peer.message_history	
+				if peer.is_seed:
+					print peer.ip + ":" + peer.port + " is a seed"
+
+		i = 0
+		for (ip, port) in client.connected_peers:
+			print "(" + str(i + 1) + ") " + ip + ":" + port
+			i = i + 1
+					
+
+

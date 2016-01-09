@@ -16,7 +16,7 @@ BIT_TORRENT_DEFAULT_PORT = 6881
 BUFSIZ = 1 << 10
 
 def str_to_int(s):
-	return (ord(s[0] << 24)) + (ord(s[1] << 16)) + (ord(s[2] << 8)) + ord(s[3])
+	return (ord(s[0]) << 24) + (ord(s[1]) << 16) + (ord(s[2]) << 8) + ord(s[3])
 
 class TorrentClient:
 	def __init__(self, filename, no_dns):
@@ -27,6 +27,7 @@ class TorrentClient:
 		self.info_hash = self.torrent.info_hash 	  # The one that you print for debugging
 		self.binary_hash = self.torrent.binary_hash() # The one that you send over connections 
 		self.peer = None
+		self.peer_index = -1
 
 		# Network stuff
 		self.no_dns = no_dns
@@ -255,6 +256,7 @@ class TorrentClient:
 	# Parse the contents of a message BASED ON the ID
 	# of the message.	
 	def parse_message_content(self, msg_id, msg_content):
+		print "Parsing message with message id " + str(msg_id)
 		if msg_id == 0:			# Choke	
 			print "Peer has choked client"
 			self.is_choking = True
@@ -272,19 +274,17 @@ class TorrentClient:
 			self.is_interesting = False 
 
 		elif msg_id == 4:		# Have
-			if len(msg_content) != 4:
-				raise Exception("Have message content is not 4 bytes long")
-
 			index = str_to_int(msg_content[0:4])
 
 			print "Peer has piece at index " + str(str_to_int(msg_content[0:4]))
-			print "Previous peer bitfield: "
-			self.print_peer_bitfield()
 
-			self.peer.bitfield[index] = True
+			if len(self.peer.bitfield) > 0:
+				print "Previous peer bitfield: "
+				self.print_peer_bitfield()
+				self.peer.bitfield[index] = True
 
-			print "\n\New peer bitfield: "
-			self.print_peer_bitfield()
+				print "\n\New peer bitfield: "
+				self.print_peer_bitfield()
 
 		elif msg_id == 5:		# Bitfield
 			self.peer.is_seed = True
@@ -376,7 +376,7 @@ class TorrentClient:
 
 	# Attempt to connect to up to 30 peers from the list
 	def connect_to_all_peers(self):	
-		for i in range(0, 30):
+		for i in range(0, 10):
 			conn = False 
 			if i < len(self.peers):
 				conn = self.new_connection(self.peers[i])
@@ -390,30 +390,72 @@ class TorrentClient:
 	
 			print "List of connected peers: " + str(self.connected_peers)
 
-	def send_message_to_peer(self, msg_id, msg_content):
-		if msg_id == 0:
+	def send_message_to_peer(self, msg_id, msg_content, peer_index):
+		self.set_peer(peer_index)
+
+		if msg_id == -1:
 			self.sock.send(4 * chr(0))
 			return
 
-		msg_len = int(len(msg_content) + 1)
-		tmp = chr(msg_len & (0xff << 24)) + chr(msg_len & (0xff << 16)) + chr(msg_len & (0xff << 8)) + chr(msg_len & (0xff))	# High bits first
-		msg = tmp + chr(msg_id) + msg_content		# Message ID + the actual message
+		# The beauty of python
 
-		self.sock.send(msg)
+		elif msg_id == 0:
+			self.sock.send(3 * chr(0) + chr(1) + chr(0))
 
-	def send_keepalive(self):
-		self.send_message_to_peer(0, None)
+		elif msg_id == 1:
+			self.sock.send(3 * chr(0) + chr(1) + chr(1))
 
-	def receive_message_from_peer(self, peer_index):
+		elif msg_id == 2:
+			self.sock.send(3 * chr(0) + chr(1) + chr(2))
+
+		elif msg_id == 3:
+			self.sock.send(3 * chr(0) + chr(1) + chr(3))
+
+		else:
+			msg_len = int(len(msg_content) + 1)
+			tmp = chr((msg_len >> 24) & 0xff) + chr((msg_len >> 16) & 0xff) + chr((msg_len >> 8) & 0xff)  + \
+						chr(msg_len & (0xff))	# High bits first
+			msg = tmp + chr(msg_id) + msg_content		# Message ID + the actual message
+
+			self.sock.send(msg)
+
+	def send_keepalive(self, peer_index):
+		self.send_message_to_peer(-1, None, peer_index)
+
+	def set_peer(self, peer_index):
 		self.sock = self.sockets[peer_index]
 		self.peer = self.all_connected_peers[peer_index]
+
+	def receive_message_from_peer(self, peer_index):
+		self.set_peer(peer_index)
 		length = self.sock.recv(4) # Get the length of the message
 
 		self.peer.message_history += length
 		
-		length = struct.unpack("!I", length)[0] - 1 # Discard message id byte
-		if length == 0:
-			return 0, chr(0), ""
+		length = struct.unpack("!I", length)[0] # Discard message id byte
+		if length == 0:							# Received a "keep-alive"
+			print "Received a keep-alive. Maintain the connection"
+			return 0, chr(-1), ""
+
+		elif length == 1:
+			msg_id = self.sock.recv(1)
+			msg_id = ord(msg_id)
+
+			if msg_id == 0:
+				print "Peer is choking us!!!"
+				return 1, chr(0), ""
+			elif msg_id == 1:
+				print "Peer is unchoking us..."
+				return 1, chr(1), ""
+			elif msg_id == 2:
+				print "Peer is interested in something!!!"
+				return 1, chr(2), ""
+			elif msg_id == 3:
+				print "Peer is not interested in anything..."
+				return 1, chr(3), ""
+
+		
+		length = length - 1
 	
 		print "Length of message: " + str(length)
 
@@ -429,8 +471,11 @@ class TorrentClient:
 		print "Raw message content: " + msg_content
 
 		self.peer.message_history += msg_content
+
+		print "Message history of peer " + self.peer.ip + ":" + self.peer.port + "\n"
+		print self.peer.message_history
 	
-		return length, msg_id, msg_content
+		return length, ord(msg_id), msg_content
 		
 
 # TESTING
