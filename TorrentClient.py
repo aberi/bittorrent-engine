@@ -443,15 +443,19 @@ class TorrentClient:
 
 			if msg_id == 0:
 				print "Peer is choking us!!!"
+				self.is_choked = True
 				return 1, chr(0), ""
 			elif msg_id == 1:
 				print "Peer is unchoking us..."
+				self.is_choked = False
 				return 1, chr(1), ""
 			elif msg_id == 2:
 				print "Peer is interested in something!!!"
+				self.is_interesting = True
 				return 1, chr(2), ""
 			elif msg_id == 3:
 				print "Peer is not interested in anything..."
+				self.is_interesting = False
 				return 1, chr(3), ""
 
 		
