@@ -259,19 +259,19 @@ class TorrentClient:
 		print "Parsing message with message id " + str(msg_id)
 		if msg_id == 0:			# Choke	
 			print "Peer has choked client"
-			self.is_choking = True
+			self.peer.is_choked = True
 
 		elif msg_id == 1:		# Unchoke
 			print "Peer has unchoked client"
-			self.is_choking = False
+			self.peer.is_choked = False
 
 		elif msg_id == 2:		# Interested
 			print "Peer is interested in something"
-			self.is_interesting = True
+			self.peer.is_interesting = True
 
 		elif msg_id == 3:		# Not Interested
 			print "Peer is not interested in something"
-			self.is_interesting = False 
+			self.peer.is_interesting = False 
 
 		elif msg_id == 4:		# Have
 			index = str_to_int(msg_content[0:4])
@@ -303,9 +303,17 @@ class TorrentClient:
 						if self.peer.is_seed:
 							print "Peer is a seed indeed"
 						return 
-						
+
 			if self.peer.is_seed:
 				print "Peer is a seed indeed"
+	
+		elif msg_id == 6: # Received a request!!!
+			index = int(struct.unpack("!I", msg_content[0:4])[0])
+			begin = int(struct.unpack("!I", msg_content[4:8])[0])
+			piece_length = int(struct.unpack("!I", msg_content[8:12])[0])
+
+			print "\nPeer has requested that you send piece" + str(index) + \
+					" beginning at offset " + str(begin) + " of length " + str(piece_length)
 
 
 	def print_peer_bitfield(self):
@@ -390,6 +398,10 @@ class TorrentClient:
 	
 			print "List of connected peers: " + str(self.connected_peers)
 
+	def send_message_to_all_peers(self, msg_id, msg_content):
+		for peer_index in range(0, len(self.all_connected_peers)):
+			self.send_message_to_peer(msg_id, msg_content, peer_index)
+
 	def send_message_to_peer(self, msg_id, msg_content, peer_index):
 		self.set_peer(peer_index)
 
@@ -402,29 +414,77 @@ class TorrentClient:
 		elif msg_id == 0:
 			self.sock.send(3 * chr(0) + chr(1) + chr(0))
 
+			client.peer.is_choking = True
+
 		elif msg_id == 1:
 			self.sock.send(3 * chr(0) + chr(1) + chr(1))
+
+			client.peer.is_choking = False
 
 		elif msg_id == 2:
 			self.sock.send(3 * chr(0) + chr(1) + chr(2))
 
+			client.peer.is_interested = True 
+
 		elif msg_id == 3:
 			self.sock.send(3 * chr(0) + chr(1) + chr(3))
 
+			client.peer.is_interested = False 
+
 		else:
 			msg_len = int(len(msg_content) + 1)
-			tmp = chr((msg_len >> 24) & 0xff) + chr((msg_len >> 16) & 0xff) + chr((msg_len >> 8) & 0xff)  + \
-						chr(msg_len & (0xff))	# High bits first
-			msg = tmp + chr(msg_id) + msg_content		# Message ID + the actual message
+			msg_len = struct.unpack(">I", msg_len)
+			msg = msg_len + chr(msg_id) + msg_content		# Message ID + the actual message
 
 			self.sock.send(msg)
 
+	# Methods for sending messages to peers. Peers are stored in an array
+	# of peers objects. The index of the desired peer must be indicated in
+	# each message to indicate which peer to send the message to.
+
 	def send_keepalive(self, peer_index):
 		self.send_message_to_peer(-1, None, peer_index)
+	
+	def send_choke(self, peer_index):
+		self.send_message_to_peer(0, None, peer_index)
+
+	def send_unchoke(self, peer_index):
+		self.send_message_to_peer(1, None, peer_index)
+
+	def send_interested(self, peer_index):
+		self.send_message_to_peer(2, None, peer_index)
+
+	def send_not_interested(self, peer_index):
+		self.send_message_to_peer(3, None, peer_index)
+
+	def send_have(self, piece_index, peer_index):
+		message = struct.pack(">I", piece_index)
+		self.send_message_to_peer(4, message, peer_index)			
+
+	def send_bitfield(self, peer_index):
+		message = self.raw_bytes_bitfield(self.bitfield)
+		self.send_message_to_peer(5, message, peer_index)
+	
+	def send_request(self, piece_index, piece_begin, piece_length, peer_index):
+		message = struct.pack(">I", piece_index) + struct.pack(">I", piece_begin) + struct.pack(">I", piece_length)
+		self.send_message_to_peer(6, message, peer_index)
+
+	# End of methods for sending messages to peers
 
 	def set_peer(self, peer_index):
 		self.sock = self.sockets[peer_index]
 		self.peer = self.all_connected_peers[peer_index]
+
+	def is_current_peer(self, peer_index):
+			return self.sock == self.sockets[peer_index] and self.peer == self.all_connected_peers[peer_index]
+
+	
+	def peer_string(self, peer_index):
+		if not self.is_current_peer(peer_index):
+			self.set_peer(peer_index) 		
+
+		return self.peer.ip + ":" + self.peer.port
+
 
 	def receive_message_from_peer(self, peer_index):
 		self.set_peer(peer_index)
@@ -434,7 +494,7 @@ class TorrentClient:
 		
 		length = struct.unpack("!I", length)[0] # Discard message id byte
 		if length == 0:							# Received a "keep-alive"
-			print "Received a keep-alive. Maintain the connection"
+			print "Received a keep-alive from " + self.peer_string(peer_index) + ". Maintain the connection"
 			return 0, chr(-1), ""
 
 		elif length == 1:
